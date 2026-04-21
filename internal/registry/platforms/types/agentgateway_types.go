@@ -170,12 +170,13 @@ type MCPBackend struct {
 }
 
 type MCPTarget struct {
-	Name    string             `json:"name" yaml:"name"`
-	SSE     *SSETargetSpec     `json:"sse,omitempty" yaml:"sse,omitempty"`
-	Stdio   *StdioTargetSpec   `json:"stdio,omitempty" yaml:"stdio,omitempty"`
-	MCP     *MCPTargetSpec     `json:"mcp,omitempty" yaml:"mcp,omitempty"`
-	OpenAPI *OpenAPITargetSpec `json:"openapi,omitempty" yaml:"openapi,omitempty"`
-	Filters []any              `json:"filters,omitempty" yaml:"filters,omitempty"`
+	Name     string             `json:"name" yaml:"name"`
+	SSE      *SSETargetSpec     `json:"sse,omitempty" yaml:"sse,omitempty"`
+	Stdio    *StdioTargetSpec   `json:"stdio,omitempty" yaml:"stdio,omitempty"`
+	MCP      *MCPTargetSpec     `json:"mcp,omitempty" yaml:"mcp,omitempty"`
+	OpenAPI  *OpenAPITargetSpec `json:"openapi,omitempty" yaml:"openapi,omitempty"`
+	Filters  []any              `json:"filters,omitempty" yaml:"filters,omitempty"`
+	Policies *FilterOrPolicy    `json:"policies,omitempty" yaml:"policies,omitempty"`
 }
 
 type SSETargetSpec struct {

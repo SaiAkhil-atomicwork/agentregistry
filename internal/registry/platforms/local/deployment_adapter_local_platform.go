@@ -301,14 +301,27 @@ func translateLocalAgentGatewayService(platformDir string, port uint16) (*compos
 	}
 
 	image := fmt.Sprintf("%s/agentregistry-dev/agentregistry/arctl-agentgateway:%s", version.DockerRegistry, version.Version)
+	adminAddr := "0.0.0.0:15000"
 	return &composetypes.ServiceConfig{
 		Name:    "agent_gateway",
 		Image:   image,
 		Command: []string{"-f", "/config/agent-gateway.yaml"},
-		Ports: []composetypes.ServicePortConfig{{
-			Target:    uint32(port),
-			Published: fmt.Sprintf("%d", port),
-		}},
+		Environment: composetypes.NewMappingWithEquals([]string{
+			// Bind admin UI to 0.0.0.0 so Docker can forward it to the host
+			fmt.Sprintf("ADMIN_ADDR=%s", adminAddr),
+		}),
+		Ports: []composetypes.ServicePortConfig{
+			{
+				Target:    uint32(port),
+				Published: fmt.Sprintf("%d", port),
+			},
+			{
+				// Expose agentgateway admin UI (Listeners/Routes/Backends) on host :15000
+				Target:    15000,
+				Published: "15000",
+				HostIP:    "127.0.0.1",
+			},
+		},
 		Volumes: []composetypes.ServiceVolumeConfig{{
 			Type:   composetypes.VolumeTypeBind,
 			Source: platformDir,
@@ -399,6 +412,17 @@ func translateLocalAgentGatewayConfig(agentGatewayPort uint16, servers []*platfo
 		case platformtypes.MCPServerTypeRemote:
 			mcpTarget.MCP = &platformtypes.MCPTargetSpec{
 				Host: platformutils.BuildRemoteMCPURL(server.Remote),
+			}
+			if len(server.Remote.Headers) > 0 {
+				setHeaders := make(map[string]string, len(server.Remote.Headers))
+				for _, h := range server.Remote.Headers {
+					setHeaders[h.Name] = h.Value
+				}
+				mcpTarget.Policies = &platformtypes.FilterOrPolicy{
+					RequestHeaderModifier: &platformtypes.HeaderModifier{
+						Set: setHeaders,
+					},
+				}
 			}
 		case platformtypes.MCPServerTypeLocal:
 			switch server.Local.TransportType {

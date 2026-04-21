@@ -17,8 +17,18 @@ RUN apt-get update && apt-get install -y \
     && mv /root/.local/bin/uvx /usr/local/bin/uvx \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy agentgateway binary from official image
-COPY --from=ghcr.io/agentgateway/agentgateway:0.10.5 /app/agentgateway /usr/local/bin/agentgateway
+# Download agentgateway v1.1.0 binary (not available as Docker image; only as GitHub release)
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) AG_ARCH="amd64" ;; \
+        arm64) AG_ARCH="arm64" ;; \
+        *) echo "Unsupported arch: ${TARGETARCH}" && exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/agentgateway/agentgateway/releases/download/v1.1.0/agentgateway-linux-${AG_ARCH}" \
+        -o /usr/local/bin/agentgateway; \
+    chmod +x /usr/local/bin/agentgateway; \
+    /usr/local/bin/agentgateway --version
 
 WORKDIR /app
 
