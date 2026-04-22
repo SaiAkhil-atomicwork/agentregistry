@@ -6,7 +6,6 @@ import { useTheme } from "next-themes"
 import { useSyncExternalStore } from "react"
 import { Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import Image from "next/image"
 
 export function Navigation() {
   const pathname = usePathname()
@@ -24,14 +23,13 @@ export function Navigation() {
     <nav className="border-b bg-background sticky top-0 z-50">
       <div className="container mx-auto px-6">
         <div className="flex items-center gap-10 h-14">
-          <Link href="/" className="flex items-center shrink-0 rounded-md px-2 py-1">
-            <Image
-              src={mounted && theme === "dark" ? "/logo-dark.svg" : "/logo-light.svg"}
-              alt="Agent Registry"
-              width={180}
-              height={60}
-              className="h-12 w-auto"
+          <Link href="/" className="flex items-center gap-3 shrink-0 rounded-md px-2 py-1">
+            <img
+              src="/atom-icon.svg"
+              alt="ToolRegistry"
+              className="h-10 w-10 rounded-lg ring-2 ring-primary/20"
             />
+            <span className="font-bold text-foreground text-xl tracking-tight">toolregistry</span>
           </Link>
 
           <div className="flex items-center gap-1">
