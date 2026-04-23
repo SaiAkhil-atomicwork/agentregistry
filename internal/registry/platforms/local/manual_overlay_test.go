@@ -241,3 +241,67 @@ func routeNamesOf(routes []platformtypes.LocalRoute) []string {
 	}
 	return out
 }
+
+func TestAgentRouteBackendHost_LocalAndRemote(t *testing.T) {
+	cases := []struct {
+		name        string
+		agent       *platformtypes.Agent
+		serviceName string
+		want        string
+		wantErr     bool
+	}{
+		{
+			name:        "container agent uses docker service name",
+			agent:       &platformtypes.Agent{Deployment: platformtypes.AgentDeployment{Image: "ghcr.io/x/y", Port: 8123}},
+			serviceName: "myagent-svc",
+			want:        "myagent-svc:8123",
+		},
+		{
+			name:        "container agent without explicit port falls back to DefaultLocalAgentPort (8080)",
+			agent:       &platformtypes.Agent{Deployment: platformtypes.AgentDeployment{Image: "ghcr.io/x/y"}},
+			serviceName: "noport",
+			want:        "noport:8080",
+		},
+		{
+			name: "URL-only A2A agent on host.docker.internal",
+			agent: &platformtypes.Agent{
+				Remote: &platformtypes.AgentRemote{Type: "a2a", URL: "http://host.docker.internal:9001"},
+			},
+			serviceName: "ignored-when-remote",
+			want:        "host.docker.internal:9001",
+		},
+		{
+			name: "URL-only HTTPS agent infers default port 443",
+			agent: &platformtypes.Agent{
+				Remote: &platformtypes.AgentRemote{Type: "a2a", URL: "https://example.com/a2a"},
+			},
+			serviceName: "external",
+			want:        "example.com:443",
+		},
+		{
+			name: "URL-only with empty URL errors",
+			agent: &platformtypes.Agent{
+				Remote: &platformtypes.AgentRemote{Type: "a2a", URL: ""},
+			},
+			serviceName: "x",
+			wantErr:     true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := agentRouteBackendHost(tc.agent, tc.serviceName)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("want error, got nil (host=%q)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("got %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

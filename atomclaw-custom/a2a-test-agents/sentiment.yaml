@@ -1,0 +1,11 @@
+apiVersion: ar.dev/v1alpha1
+kind: Agent
+metadata:
+  name: com.atomclaw.a2a.sentiment
+  version: "1.0.0"
+spec:
+  title: A2A Sentiment
+  description: "Classifies sentiment as positive/neutral/negative with a confidence score."
+  remotes:
+    - type: a2a
+      url: http://host.docker.internal:9002

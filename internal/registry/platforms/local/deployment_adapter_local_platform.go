@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -71,6 +72,13 @@ func BuildLocalPlatformConfig(
 	}
 
 	for _, agent := range desired.Agents {
+		// URL-only external agents (e.g. an A2A endpoint outside the registry)
+		// don't get a Docker service — the reconciler points the gateway
+		// route directly at their hostname:port via translateLocalAgentGatewayConfig.
+		if agent.Remote != nil {
+			continue
+		}
+
 		serviceName := localAgentServiceName(agent)
 		if _, exists := dockerComposeServices[serviceName]; exists {
 			return nil, fmt.Errorf("duplicate Agent name found: %s", agent.Name)
@@ -459,6 +467,10 @@ func translateLocalAgentGatewayConfig(agentGatewayPort uint16, servers []*platfo
 	var agentRoutes []platformtypes.LocalRoute
 	for _, agent := range agents {
 		agentServiceName := localAgentServiceName(agent)
+		backendHost, err := agentRouteBackendHost(agent, agentServiceName)
+		if err != nil {
+			return nil, fmt.Errorf("agent %s: %w", agent.Name, err)
+		}
 		route := platformtypes.LocalRoute{
 			RouteName: fmt.Sprintf("%s_route", agentServiceName),
 			Matches: []platformtypes.RouteMatch{{
@@ -468,7 +480,7 @@ func translateLocalAgentGatewayConfig(agentGatewayPort uint16, servers []*platfo
 			}},
 			Backends: []platformtypes.RouteBackend{{
 				Weight: 100,
-				Host:   fmt.Sprintf("%s:%d", agentServiceName, defaultAgentPort(agent)),
+				Host:   backendHost,
 			}},
 			Policies: &platformtypes.FilterOrPolicy{
 				A2A: &platformtypes.A2APolicy{},
@@ -524,6 +536,39 @@ func defaultAgentPort(agent *platformtypes.Agent) uint16 {
 		return platformutils.DefaultLocalAgentPort
 	}
 	return agent.Deployment.Port
+}
+
+// agentRouteBackendHost returns the gateway-route backend host:port for an
+// agent. For URL-only external agents (Agent.Remote set) the host:port is
+// derived from the remote URL — port falls back to the URL scheme's default
+// when not explicitly set. For container-deployed agents the backend is the
+// Docker service name + the resolved agent port.
+func agentRouteBackendHost(agent *platformtypes.Agent, agentServiceName string) (string, error) {
+	if agent != nil && agent.Remote != nil {
+		raw := strings.TrimSpace(agent.Remote.URL)
+		if raw == "" {
+			return "", fmt.Errorf("remote.url must be set for external agents")
+		}
+		u, err := url.Parse(raw)
+		if err != nil {
+			return "", fmt.Errorf("invalid remote.url %q: %w", raw, err)
+		}
+		host := u.Hostname()
+		if host == "" {
+			return "", fmt.Errorf("remote.url %q has no hostname", raw)
+		}
+		port := u.Port()
+		if port == "" {
+			switch strings.ToLower(u.Scheme) {
+			case "https":
+				port = "443"
+			default:
+				port = "80"
+			}
+		}
+		return fmt.Sprintf("%s:%s", host, port), nil
+	}
+	return fmt.Sprintf("%s:%d", agentServiceName, defaultAgentPort(agent)), nil
 }
 
 func mustAgentManifest(

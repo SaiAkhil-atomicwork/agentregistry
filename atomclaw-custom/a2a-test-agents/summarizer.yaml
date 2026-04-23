@@ -1,0 +1,11 @@
+apiVersion: ar.dev/v1alpha1
+kind: Agent
+metadata:
+  name: com.atomclaw.a2a.summarizer
+  version: "1.0.0"
+spec:
+  title: A2A Summarizer
+  description: "Summarizes a passage of text in 2-3 sentences via Claude Haiku."
+  remotes:
+    - type: a2a
+      url: http://host.docker.internal:9001

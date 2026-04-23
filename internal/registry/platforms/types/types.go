@@ -30,6 +30,19 @@ type Agent struct {
 	ResolvedMCPServers []ResolvedMCPServerConfig `json:"resolvedMCPServers,omitempty"`
 	ResolvedPrompts    []ResolvedPrompt          `json:"resolvedPrompts,omitempty"`
 	Skills             []AgentSkillRef           `json:"skills,omitempty"`
+	// Remote, when non-nil, marks this Agent as an external URL-only target
+	// (e.g. an A2A-spec agent running outside the registry). The reconciler
+	// skips Docker service creation and routes the gateway directly to the
+	// external host. Mutually exclusive with Deployment.Image.
+	Remote *AgentRemote `json:"remote,omitempty"`
+}
+
+// AgentRemote describes an external HTTP endpoint that an Agent points at.
+// Type is a free-form discriminator; "a2a" is the canonical value for
+// agent-to-agent JSON-RPC servers fronted by agentgateway's A2A policy.
+type AgentRemote struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
 }
 
 type AgentSkillRef struct {

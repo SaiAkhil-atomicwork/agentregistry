@@ -166,16 +166,32 @@ func ResolveAgent(
 		return nil, err
 	}
 
+	resolvedAgent := &platformtypes.Agent{
+		Name:               agentResp.Agent.Name,
+		Version:            agentResp.Agent.Version,
+		DeploymentID:       deployment.ID,
+		Deployment:         platformtypes.AgentDeployment{Image: agentResp.Agent.Image, Env: envValues, Port: DefaultLocalAgentPort},
+		ResolvedMCPServers: resolvedConfigs,
+		ResolvedPrompts:    prompts,
+		Skills:             skills,
+	}
+
+	// URL-only external agents: when the manifest has no Image but declares
+	// a Remote of type a2a (or http), we mark the resolved Agent as remote
+	// so the local reconciler skips Docker service creation and points the
+	// gateway route at the external URL. The first matching remote wins.
+	if agentResp.Agent.Image == "" {
+		for _, r := range agentResp.Agent.Remotes {
+			t := strings.ToLower(strings.TrimSpace(r.Type))
+			if t == "a2a" || t == "http" || t == "https" {
+				resolvedAgent.Remote = &platformtypes.AgentRemote{Type: t, URL: r.URL}
+				break
+			}
+		}
+	}
+
 	return &platformtypes.ResolvedAgentConfig{
-		Agent: &platformtypes.Agent{
-			Name:               agentResp.Agent.Name,
-			Version:            agentResp.Agent.Version,
-			DeploymentID:       deployment.ID,
-			Deployment:         platformtypes.AgentDeployment{Image: agentResp.Agent.Image, Env: envValues, Port: DefaultLocalAgentPort},
-			ResolvedMCPServers: resolvedConfigs,
-			ResolvedPrompts:    prompts,
-			Skills:             skills,
-		},
+		Agent:                   resolvedAgent,
 		ResolvedPlatformServers: resolvedServers,
 		ResolvedConfigServers:   resolvedConfigs,
 		ResolvedPrompts:         prompts,
