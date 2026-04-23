@@ -106,6 +106,23 @@ type SkillSpec struct {
 	Repository  *SkillRepository  `yaml:"repository,omitempty" json:"repository,omitempty"`
 	Packages    []SkillPackageRef `yaml:"packages,omitempty" json:"packages,omitempty"`
 	Remotes     []SkillRemoteInfo `yaml:"remotes,omitempty" json:"remotes,omitempty"`
+	// Content, when set, embeds the full skill bundle (SKILL.md body + helper
+	// files) inline so consumers can pull content directly from the registry
+	// rather than re-fetching the origin repository at import time.
+	Content *SkillContent `yaml:"content,omitempty" json:"content,omitempty"`
+}
+
+// SkillContent is the declarative spec for embedded skill content.
+type SkillContent struct {
+	Markdown string         `yaml:"markdown,omitempty" json:"markdown,omitempty"`
+	Files    []SkillFileRef `yaml:"files,omitempty" json:"files,omitempty"`
+}
+
+// SkillFileRef is one file in the embedded bundle.
+type SkillFileRef struct {
+	Path     string `yaml:"path" json:"path"`
+	Content  string `yaml:"content" json:"content"`
+	Encoding string `yaml:"encoding,omitempty" json:"encoding,omitempty"`
 }
 
 // SkillRepository mirrors models.SkillRepository.

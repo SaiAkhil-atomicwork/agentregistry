@@ -14,6 +14,23 @@ type SkillJSON struct {
 	Repository  *SkillRepository   `json:"repository,omitempty"`
 	Packages    []SkillPackageInfo `json:"packages,omitempty"`
 	Remotes     []SkillRemoteInfo  `json:"remotes,omitempty"`
+	Content     *SkillContent      `json:"content,omitempty"`
+}
+
+// SkillContent embeds the skill bundle inline (SKILL.md body + helper
+// files). When set, consumers can pull the full skill from the registry
+// without re-fetching the origin repository.
+type SkillContent struct {
+	Markdown string         `json:"markdown,omitempty"`
+	Files    []SkillFileRow `json:"files,omitempty"`
+}
+
+// SkillFileRow is one file in the bundle. For binary content, set
+// Encoding="base64"; default is plain text.
+type SkillFileRow struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding,omitempty"`
 }
 
 type SkillRepository struct {

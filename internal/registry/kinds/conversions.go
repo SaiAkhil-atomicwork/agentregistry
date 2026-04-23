@@ -123,6 +123,17 @@ func ToSkillJSON(md Metadata, spec *SkillSpec) *models.SkillJSON {
 			URL: r.URL,
 		})
 	}
+	if spec.Content != nil {
+		content := &models.SkillContent{Markdown: spec.Content.Markdown}
+		for _, f := range spec.Content.Files {
+			content.Files = append(content.Files, models.SkillFileRow{
+				Path:     f.Path,
+				Content:  f.Content,
+				Encoding: f.Encoding,
+			})
+		}
+		sj.Content = content
+	}
 	return sj
 }
 
