@@ -17,7 +17,15 @@ import {
   Copy,
   Check,
   History,
+  FileText,
 } from "lucide-react"
+
+// AtomClaw extension: spec.content lives on the wire but isn't in the
+// auto-generated SkillJson type yet. Narrow-cast at the call-site.
+interface SkillContentShape {
+  markdown?: string
+  files?: Array<{ path: string; content: string; encoding?: string }>
+}
 
 interface SkillDetailProps {
   skill: SkillResponse
@@ -33,6 +41,8 @@ export function SkillDetail({ skill, allVersions: allVersionsProp }: SkillDetail
 
   const { skill: skillData, _meta } = selectedVersion
   const official = _meta?.['io.modelcontextprotocol.registry/official']
+  const content = (skillData as unknown as { content?: SkillContentShape }).content
+  const hasContent = !!(content?.markdown && content.markdown.length > 0)
 
   const handleVersionChange = (version: string) => {
     const newVersion = allVersions.find(v => v.skill.version === version)
@@ -128,6 +138,7 @@ export function SkillDetail({ skill, allVersions: allVersionsProp }: SkillDetail
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="mb-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            {hasContent && <TabsTrigger value="content">SKILL.md</TabsTrigger>}
             {skillData.packages && skillData.packages.length > 0 && (
               <TabsTrigger value="packages">Packages</TabsTrigger>
             )}
@@ -136,6 +147,38 @@ export function SkillDetail({ skill, allVersions: allVersionsProp }: SkillDetail
             )}
             <TabsTrigger value="raw">Raw</TabsTrigger>
           </TabsList>
+
+          {hasContent && (
+            <TabsContent value="content">
+              <div className="rounded-lg border p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    SKILL.md ({content!.markdown!.length.toLocaleString()} chars)
+                    {content?.files && content.files.length > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">
+                        + {content.files.length} file{content.files.length === 1 ? "" : "s"}
+                      </Badge>
+                    )}
+                  </h3>
+                </div>
+                <pre className="bg-muted p-3 rounded-md overflow-x-auto text-xs leading-relaxed whitespace-pre-wrap max-h-[60vh]">
+                  {content!.markdown}
+                </pre>
+                {content?.files && content.files.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Helper files</h4>
+                    {content.files.map((f, i) => (
+                      <details key={i} className="rounded border p-2 text-xs">
+                        <summary className="cursor-pointer font-mono">{f.path}</summary>
+                        <pre className="mt-2 bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">{f.content}</pre>
+                      </details>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value="overview" className="space-y-6">
             <section>
