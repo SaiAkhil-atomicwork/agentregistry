@@ -324,10 +324,13 @@ func translateLocalAgentGatewayService(platformDir string, port uint16) (*compos
 				Published: fmt.Sprintf("%d", port),
 			},
 			{
-				// Expose agentgateway admin UI (Listeners/Routes/Backends) on host :15000
+				// Expose agentgateway admin UI (Listeners/Routes/Backends) on host :15000.
+				// Bind to all interfaces so Paperclip running on a sibling host
+				// (e.g. EC2-A) can hit /config for A2A route discovery. Admin
+				// port must stay behind VPC security groups / firewall — it's
+				// not auth-gated at the HTTP layer.
 				Target:    15000,
 				Published: "15000",
-				HostIP:    "127.0.0.1",
 			},
 		},
 		Volumes: []composetypes.ServiceVolumeConfig{{
