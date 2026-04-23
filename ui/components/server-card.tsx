@@ -29,7 +29,10 @@ export function ServerCard({ server, onDelete, onDeploy, showDelete = false, sho
   const publisherMetadata = publisherProvided?.['aregistry.ai/metadata'] as Record<string, any> | undefined
   const githubStars = publisherMetadata?.stars
   const identityData = publisherMetadata?.identity
-  const hasOciPackage = serverData.packages?.some(pkg => pkg.registryType === "oci") ?? false
+  // Deployable if any runnable package (oci image, npm stdio, pypi stdio) or a remote is declared.
+  const hasDeployablePackage =
+    (serverData.packages && serverData.packages.length > 0) ||
+    (serverData.remotes && serverData.remotes.length > 0)
 
   const formatDate = (dateString: string) => {
     try {
@@ -128,7 +131,7 @@ export function ServerCard({ server, onDelete, onDeploy, showDelete = false, sho
 
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           {showDeploy && onDeploy && (
-            hasOciPackage ? (
+            hasDeployablePackage ? (
               <Button
                 variant="default"
                 size="sm"
@@ -153,7 +156,7 @@ export function ServerCard({ server, onDelete, onDeploy, showDelete = false, sho
                     </Button>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent><p>No OCI package available</p></TooltipContent>
+                <TooltipContent><p>No runnable package declared</p></TooltipContent>
               </Tooltip>
             )
           )}
