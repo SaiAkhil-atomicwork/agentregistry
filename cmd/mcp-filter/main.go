@@ -27,31 +27,36 @@ import (
 )
 
 type config struct {
-	listenAddr       string
-	upstreamMCP      string
-	upstreamAdmin    string
-	allowlistSource  string
-	a2aBridge        bool
-	cacheTTL         time.Duration
-	shutdownGrace    time.Duration
-	agentCardTimeout time.Duration
+	listenAddr         string
+	upstreamMCP        string
+	upstreamAdmin      string
+	allowlistSource    string
+	passthroughConfig  string
+	a2aBridge          bool
+	cacheTTL           time.Duration
+	shutdownGrace      time.Duration
+	agentCardTimeout   time.Duration
+	passthroughReload  time.Duration
 }
 
 func loadConfig() config {
 	cfg := config{
-		listenAddr:       getenv("MCPFILTER_LISTEN_ADDR", ":21213"),
-		upstreamMCP:      getenv("MCPFILTER_UPSTREAM_MCP", "http://127.0.0.1:21212/mcp"),
-		upstreamAdmin:    getenv("MCPFILTER_UPSTREAM_ADMIN", "http://127.0.0.1:15000"),
-		allowlistSource:  getenv("MCPFILTER_ALLOWLIST_SOURCE", "file:///etc/atomclaw/mcp-allowlist.json"),
-		a2aBridge:        getenv("MCPFILTER_A2A_BRIDGE", "true") == "true",
-		cacheTTL:         parseDuration(getenv("MCPFILTER_CACHE_TTL", "30s")),
-		shutdownGrace:    parseDuration(getenv("MCPFILTER_SHUTDOWN_GRACE", "10s")),
-		agentCardTimeout: parseDuration(getenv("MCPFILTER_A2A_PROBE_TIMEOUT", "3s")),
+		listenAddr:        getenv("MCPFILTER_LISTEN_ADDR", ":21213"),
+		upstreamMCP:       getenv("MCPFILTER_UPSTREAM_MCP", "http://127.0.0.1:21212/mcp"),
+		upstreamAdmin:     getenv("MCPFILTER_UPSTREAM_ADMIN", "http://127.0.0.1:15000"),
+		allowlistSource:   getenv("MCPFILTER_ALLOWLIST_SOURCE", "file:///etc/atomclaw/mcp-allowlist.json"),
+		passthroughConfig: getenv("MCPFILTER_PASSTHROUGH_CONFIG", ""),
+		a2aBridge:         getenv("MCPFILTER_A2A_BRIDGE", "true") == "true",
+		cacheTTL:          parseDuration(getenv("MCPFILTER_CACHE_TTL", "30s")),
+		shutdownGrace:     parseDuration(getenv("MCPFILTER_SHUTDOWN_GRACE", "10s")),
+		agentCardTimeout:  parseDuration(getenv("MCPFILTER_A2A_PROBE_TIMEOUT", "3s")),
+		passthroughReload: parseDuration(getenv("MCPFILTER_PASSTHROUGH_RELOAD", "10s")),
 	}
 	flag.StringVar(&cfg.listenAddr, "listen", cfg.listenAddr, "address:port to listen on")
 	flag.StringVar(&cfg.upstreamMCP, "upstream-mcp", cfg.upstreamMCP, "agentgateway MCP URL")
 	flag.StringVar(&cfg.upstreamAdmin, "upstream-admin", cfg.upstreamAdmin, "agentgateway admin URL (used for A2A route discovery)")
 	flag.StringVar(&cfg.allowlistSource, "allowlist-source", cfg.allowlistSource, "allowlist source (file:///path.json or paperclip://host)")
+	flag.StringVar(&cfg.passthroughConfig, "passthrough-config", cfg.passthroughConfig, "path to passthrough-targets JSON (for MCPs agentgateway cannot proxy natively, e.g. Fastn)")
 	flag.BoolVar(&cfg.a2aBridge, "a2a-bridge", cfg.a2aBridge, "expose A2A agents (from /agents/*) as virtual MCP tools")
 	flag.DurationVar(&cfg.cacheTTL, "cache-ttl", cfg.cacheTTL, "TTL for allowlist + A2A-agent-card cache")
 	flag.Parse()
@@ -74,10 +79,19 @@ func main() {
 		bridge = newA2ABridge(cfg.upstreamMCP, cfg.upstreamAdmin, cfg.cacheTTL, cfg.agentCardTimeout)
 	}
 
+	passthrough, err := newPassthroughStore(cfg.passthroughConfig, cfg.passthroughReload)
+	if err != nil {
+		log.Fatalf("passthrough config: %v", err)
+	}
+	if cfg.passthroughConfig != "" {
+		log.Printf("passthrough enabled: file=%s reload=%s", cfg.passthroughConfig, cfg.passthroughReload)
+	}
+
 	p := &proxy{
-		cfg:       cfg,
-		allowlist: allowlist,
-		bridge:    bridge,
+		cfg:         cfg,
+		allowlist:   allowlist,
+		bridge:      bridge,
+		passthrough: passthrough,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -89,6 +103,7 @@ func main() {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	})
 	mux.HandleFunc("/mcp/", p.handleMCP)
+	mux.HandleFunc("/passthrough/", p.handlePassthrough)
 	mux.HandleFunc("/internal/invalidate/", func(w http.ResponseWriter, r *http.Request) {
 		agentID := strings.TrimPrefix(r.URL.Path, "/internal/invalidate/")
 		agentID = strings.Trim(agentID, "/")

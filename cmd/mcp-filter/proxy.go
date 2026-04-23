@@ -13,10 +13,11 @@ import (
 // proxy handles an incoming MCP request from a client (e.g. Claude CLI running
 // in a Paperclip agent), optionally filters the response, and returns it.
 type proxy struct {
-	cfg       config
-	allowlist *allowlistCache
-	bridge    *a2aBridge
-	client    *http.Client
+	cfg         config
+	allowlist   *allowlistCache
+	bridge      *a2aBridge
+	passthrough *passthroughStore
+	client      *http.Client
 }
 
 // handleMCP dispatches `/mcp/<agent-id>` requests.
