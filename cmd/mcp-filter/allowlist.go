@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -70,9 +71,25 @@ func newAllowlistSource(spec string) (AllowlistSource, error) {
 		}
 		return &fileSource{path: path}, nil
 	case "paperclip", "paperclip+http", "paperclip+https":
-		// TODO(phase 2): implement HTTP client against Paperclip's
-		// GET /api/internal/agents/<id>/allowed-tools endpoint.
-		return nil, fmt.Errorf("paperclip:// allowlist source not yet implemented (phase 2)")
+		// paperclip://host[:port]    → http://host[:port]
+		// paperclip+https://host/…   → https://host/…
+		scheme := "http"
+		if u.Scheme == "paperclip+https" {
+			scheme = "https"
+		}
+		base := scheme + "://" + u.Host
+		if u.Path != "" && u.Path != "/" {
+			base += strings.TrimRight(u.Path, "/")
+		}
+		token := os.Getenv("PAPERCLIP_INTERNAL_TOKEN")
+		if token == "" {
+			return nil, fmt.Errorf("PAPERCLIP_INTERNAL_TOKEN env var must be set for paperclip:// allowlist source")
+		}
+		return &paperclipSource{
+			baseURL: base,
+			token:   token,
+			client:  &http.Client{Timeout: 3 * time.Second},
+		}, nil
 	case "permissive":
 		return permissiveSource{}, nil
 	default:
@@ -119,6 +136,45 @@ func (s *fileSource) get(agentID string) (agentAllowlist, error) {
 		return agentAllowlist{AllowAll: true}, nil
 	}
 	return lst, nil
+}
+
+// paperclipSource fetches per-agent allowlists from Paperclip's
+// `/api/internal/agents/<id>/allowed-tools` endpoint. Auth is a shared
+// secret in the `x-internal-token` header (PAPERCLIP_INTERNAL_TOKEN).
+type paperclipSource struct {
+	baseURL string
+	token   string
+	client  *http.Client
+}
+
+func (p *paperclipSource) get(agentID string) (agentAllowlist, error) {
+	u := p.baseURL + "/api/internal/agents/" + url.PathEscape(agentID) + "/allowed-tools"
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return agentAllowlist{}, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("X-Internal-Token", p.token)
+	req.Header.Set("Accept", "application/json")
+	resp, err := p.client.Do(req)
+	if err != nil {
+		return agentAllowlist{}, fmt.Errorf("fetch %s: %w", u, err)
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		// Unknown agent → permissive. The proxy still serves tools in case
+		// the agent was created just before Paperclip propagated.
+		return agentAllowlist{AllowAll: true}, nil
+	case resp.StatusCode == http.StatusUnauthorized:
+		return agentAllowlist{}, fmt.Errorf("paperclip rejected x-internal-token (check PAPERCLIP_INTERNAL_TOKEN)")
+	case resp.StatusCode >= 400:
+		return agentAllowlist{}, fmt.Errorf("paperclip returned %d for %s", resp.StatusCode, u)
+	}
+	var body agentAllowlist
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return agentAllowlist{}, fmt.Errorf("decode response: %w", err)
+	}
+	return body, nil
 }
 
 // ---------------------------------------------------------------------------
