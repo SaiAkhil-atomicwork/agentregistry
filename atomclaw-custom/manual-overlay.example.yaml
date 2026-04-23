@@ -1,0 +1,40 @@
+# Example manual-overlay.yaml for AgentGateway.
+#
+# Copy to <platformDir>/manual-overlay.yaml on the host running `arctl daemon`
+# (default <platformDir> is /tmp/arctl-runtime-<random>; set
+# AGENT_REGISTRY_RUNTIME_DIR to pin a stable path).
+#
+# Entries are merged into the gateway's federated MCP route on every reconcile
+# pass without requiring `arctl deployments create`. Names should be prefixed
+# `manual-` so they cannot collide with deployment-managed targets.
+#
+# String values support ${ENV_VAR} interpolation against the arctl-server
+# process environment. Unset vars are left verbatim so misconfiguration is
+# obvious instead of producing empty headers.
+
+mcpTargets:
+  # Composio universal endpoint — exposes every Composio-connected app
+  # (Outlook, Slack, GitHub, etc.) as federated MCP tools. The consumer key
+  # is account-scoped; new apps you connect in Composio dashboard appear
+  # automatically without any YAML change.
+  - name: manual-composio
+    mcp:
+      host: https://connect.composio.dev/mcp
+    policies:
+      requestHeaderModifier:
+        set:
+          X-CONSUMER-API-KEY: ${COMPOSIO_CONSUMER_KEY}
+
+  # Fastn UCL — auth carried in the URL query string (no header needed).
+  - name: manual-fastn-ucl
+    mcp:
+      host: https://mcp.ucl.dev/mcp/?id=YOUR_SPACE_ID&api_key=${FASTN_API_KEY}&space_id=YOUR_SPACE_ID
+
+# Optional: hand-defined non-MCP routes (advanced).
+# routes:
+#   - name: manual_my_custom_route
+#     matches:
+#       - path: { pathPrefix: /my-path }
+#     backends:
+#       - weight: 100
+#         host: my-service:8080

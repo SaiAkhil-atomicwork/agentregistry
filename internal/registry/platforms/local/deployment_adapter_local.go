@@ -262,6 +262,10 @@ func (a *localDeploymentAdapter) mergeAndApplyLocalPlatform(
 
 	mergeAgentGatewayConfig(gatewayCfg, config.AgentGateway, targetNames, routeNames, remove, a.agentGatewayPort)
 
+	if err := applyManualOverlayIfPresent(a.platformDir, gatewayCfg); err != nil {
+		return err
+	}
+
 	if err := WriteLocalPlatformFiles(a.platformDir, &platformtypes.LocalPlatformConfig{
 		DockerCompose: composeCfg,
 		AgentGateway:  gatewayCfg,
@@ -272,6 +276,19 @@ func (a *localDeploymentAdapter) mergeAndApplyLocalPlatform(
 		return runLocalComposeDown(ctx, a.platformDir, false)
 	}
 	return runLocalComposeUp(ctx, a.platformDir, false)
+}
+
+// applyManualOverlayIfPresent loads <platformDir>/manual-overlay.yaml (if it
+// exists) and merges its MCPTargets/Routes into gatewayCfg in place. This is
+// the integration seam for hand-defined gateway entries (Composio, Fastn,
+// future external MCPs that we don't want to round-trip through arctl).
+func applyManualOverlayIfPresent(platformDir string, gatewayCfg *platformtypes.AgentGatewayConfig) error {
+	overlay, err := LoadManualOverlay(platformDir)
+	if err != nil {
+		return fmt.Errorf("manual overlay: %w", err)
+	}
+	ApplyManualOverlay(gatewayCfg, overlay)
+	return nil
 }
 
 func (a *localDeploymentAdapter) removeLocalDeploymentArtifactsByID(ctx context.Context, deploymentID string) error {
@@ -296,6 +313,10 @@ func (a *localDeploymentAdapter) removeLocalDeploymentArtifactsByID(ctx context.
 	}
 
 	filterGatewayRoutesByDeploymentID(gatewayCfg, deploymentID)
+
+	if err := applyManualOverlayIfPresent(a.platformDir, gatewayCfg); err != nil {
+		return err
+	}
 
 	if err := WriteLocalPlatformFiles(a.platformDir, &platformtypes.LocalPlatformConfig{
 		DockerCompose: composeCfg,
