@@ -46,6 +46,7 @@ services:
       AGENT_REGISTRY_ENABLE_REGISTRY_VALIDATION: "false"
       AGENT_REGISTRY_PLATFORM_MODE: "docker"
       AGENT_REGISTRY_MCP_PORT: "31313"
+      AGENT_REGISTRY_RUNTIME_DIR: "/tmp/arctl-runtime-stable"
       KUBECONFIG: "/root/.kube/config"
       # AGENT_REGISTRY_ENABLE_REGISTRY_VALIDATION: "true"
     ports:
