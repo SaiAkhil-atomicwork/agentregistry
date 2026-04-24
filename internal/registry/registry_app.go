@@ -184,6 +184,27 @@ func App(ctx context.Context, opts ...types.AppOptions) error {
 		}()
 	}
 
+	// Reconcile-on-startup: re-apply every active deployment via its platform
+	// adapter. Two reasons:
+	//   1. The on-disk runtime dir (agent-gateway.yaml + docker-compose.yaml)
+	//      may be missing or stale (server reboot wiped /tmp; runtime dir was
+	//      moved; first boot in a fresh environment). The DB is the source of
+	//      truth; this reconstructs the runtime files from it.
+	//   2. The local platform adapter's manual-overlay merge runs on every
+	//      Deploy() call — re-deploying ensures the latest overlay is applied
+	//      even if no /v0/deployments POST has happened recently.
+	// Runs in the background after a short delay so HTTP serving comes up
+	// immediately. Failures are logged but never crash the daemon.
+	go func() {
+		// Give the HTTP listener and DB connection pool a moment to settle
+		// before issuing reads + adapter calls.
+		time.Sleep(2 * time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+		ctx = auth.WithSystemContext(ctx)
+		reconcileActiveDeploymentsOnStartup(ctx, deploymentService)
+	}()
+
 	// Import seed data if seed source is provided
 	if cfg.SeedFrom != "" {
 		slog.Info("importing data in the background", "seed_from", cfg.SeedFrom)
@@ -513,4 +534,50 @@ func deploymentApplyFunc(svc deploymentsvc.Registry) kinds.ApplyFunc {
 		}
 		return kinds.AppliedResult("deployment", doc), nil
 	}
+}
+
+// reconcileActiveDeploymentsOnStartup walks every deployment record with
+// status=deployed and re-issues an idempotent ApplyDeployment so the platform
+// adapter rebuilds its on-disk runtime state (agent-gateway.yaml, compose
+// project) from the DB. Without this, a daemon process that boots into a
+// fresh runtime dir (random suffix, /tmp wipe, manual relocation) leaves the
+// gateway with an empty config until the next deploy event lands — and that
+// event then "wins alone," wiping every other backend.
+//
+// Errors per deployment are logged and skipped; the goal is best-effort
+// recovery, not a hard guarantee. The function is safe to call concurrently
+// with the HTTP serving loop because each ApplyDeployment is its own
+// transactional unit.
+func reconcileActiveDeploymentsOnStartup(ctx context.Context, svc deploymentsvc.Registry) {
+	deployedStatus := models.DeploymentStatusDeployed
+	deployments, err := svc.ListDeployments(ctx, &models.DeploymentFilter{Status: &deployedStatus})
+	if err != nil {
+		slog.Error("startup reconcile: failed to list deployments", "error", err)
+		return
+	}
+	if len(deployments) == 0 {
+		slog.Info("startup reconcile: no active deployments")
+		return
+	}
+	slog.Info("startup reconcile: re-applying active deployments", "count", len(deployments))
+	var ok, fail int
+	for _, d := range deployments {
+		if d == nil {
+			continue
+		}
+		var err error
+		if d.ResourceType == "agent" {
+			_, err = svc.ApplyAgentDeployment(ctx, d.ServerName, d.Version, d.ProviderID, d.Env, d.ProviderConfig, d.PreferRemote, false)
+		} else {
+			_, err = svc.ApplyServerDeployment(ctx, d.ServerName, d.Version, d.ProviderID, d.Env, d.ProviderConfig, d.PreferRemote, false)
+		}
+		if err != nil {
+			slog.Warn("startup reconcile: deployment re-apply failed",
+				"id", d.ID, "name", d.ServerName, "version", d.Version, "error", err)
+			fail++
+			continue
+		}
+		ok++
+	}
+	slog.Info("startup reconcile: complete", "succeeded", ok, "failed", fail)
 }
