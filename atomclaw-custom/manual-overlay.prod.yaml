@@ -1,0 +1,47 @@
+# Hand-defined gateway entries the reconciler merges into agent-gateway.yaml on
+# every pass. Use this for MCPs that can't (or shouldn't) round-trip through an
+# arctl deployment record — e.g. stdio servers we ship as patched local code,
+# or hosted SaaS endpoints with secrets that must stay out of the registry DB.
+#
+# Names MUST start with `manual-` so they cannot collide with deployment-managed
+# entries (whose names embed UUIDs).
+mcpTargets:
+  # Composio (IT MCP) — federated SaaS endpoint, key inlined because the daemon
+  # container doesn't forward host env vars to the gateway compose project.
+  - name: manual-composio
+    mcp:
+      host: https://connect.composio.dev/mcp
+    policies:
+      requestHeaderModifier:
+        set:
+          X-CONSUMER-API-KEY: ck_Brm9sgc_jyd4t_gdvjyR
+
+  # Fastn UCL (Business MCP) — proxied via mcp-filter on :21213 so the query
+  # string survives agentgateway's URL rewriting.
+  - name: manual-fastn-ucl
+    mcp:
+      host: http://172.17.0.1:21213/passthrough/fastn
+
+  # AI Image Generator — patched fork of mcp-hf-images@1.2.0 because HuggingFace
+  # retired the legacy api-inference.huggingface.co endpoint. Source lives at
+  # /config/mcp-image-server/ on the gateway container (bind-mounted from the
+  # host runtime dir). Owning this here rather than as a registry deployment
+  # keeps the patched cmd from being wiped on every reconcile pass.
+  #
+  # The tool offers `generate_image_and_attach` which uploads the generated
+  # image directly to the current Paperclip issue as an attachment, so users
+  # can view/download it in the issue UI. That path calls back to Paperclip
+  # via the ALB hostname (EC2-B → EC2-A :3100 is blocked by security group),
+  # which sits behind nginx basic auth — credentials are inlined below.
+  - name: manual-ai-image-generator
+    stdio:
+      cmd: node
+      args:
+        - /config/mcp-image-server/bin/cli.js
+      env:
+        # ${VAR} is expanded by LoadManualOverlay from the daemon process env.
+        # Set these on the agentregistry-server container via its compose file
+        # (see internal/daemon/docker-compose.yml) or a sidecar .env file.
+        HF_TOKEN: ${HF_TOKEN}
+        PAPERCLIP_API_URL: https://ai.atomicwork.in
+        PAPERCLIP_BASIC_AUTH: ${PAPERCLIP_BASIC_AUTH}
