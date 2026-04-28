@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { createServerV0, type ServerJson } from "@/lib/admin-api"
+import { createServerV0, type ServerJson, type KeyValueInput, type Transport } from "@/lib/admin-api"
 import { Loader2, AlertCircle, Plus, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -32,7 +32,21 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
 
   // Dynamic fields
   const [packages, setPackages] = useState<Array<{ identifier: string; version: string; registryType: string; transport: string }>>([])
-  const [remotes, setRemotes] = useState<Array<{ type: string; url: string }>>([])
+  // Remote headers are DECLARATIONS, not values: the registry merges HEADER_<name>
+  // env vars at deploy-time only for headers listed here (see processHeaders in
+  // agentregistry/internal/registry/platforms/utils/deployment_adapter_utils.go).
+  // Leaving a required header without a value forces the deployer to supply it.
+  const [remotes, setRemotes] = useState<Array<{
+    type: string;
+    url: string;
+    headers: Array<{
+      name: string;
+      value: string;
+      isRequired: boolean;
+      isSecret: boolean;
+      description: string;
+    }>;
+  }>>([])
 
   const resetForm = () => {
     setSchema("2025-10-17")
@@ -105,10 +119,24 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
       if (remotes.length > 0) {
         server.remotes = remotes
           .filter(r => r.type.trim())
-          .map(r => ({
-            type: r.type.trim(),
-            url: r.url.trim() || undefined,
-          }))
+          .map<Transport>(r => {
+            const headers: KeyValueInput[] = (r.headers || [])
+              .filter(h => h.name.trim())
+              .map(h => {
+                const entry: KeyValueInput = { name: h.name.trim() }
+                if (h.value.trim()) entry.value = h.value.trim()
+                if (h.isRequired) entry.isRequired = true
+                if (h.isSecret) entry.isSecret = true
+                if (h.description.trim()) entry.description = h.description.trim()
+                return entry
+              })
+            const remote: Transport = {
+              type: r.type.trim(),
+              url: r.url.trim() || undefined,
+            }
+            if (headers.length > 0) remote.headers = headers
+            return remote
+          })
       }
 
       // Create server
@@ -144,7 +172,7 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
   }
 
   const addRemote = () => {
-    setRemotes([...remotes, { type: "sse", url: "" }])
+    setRemotes([...remotes, { type: "streamable-http", url: "", headers: [] }])
   }
 
   const removeRemote = (index: number) => {
@@ -154,6 +182,40 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
   const updateRemote = (index: number, field: string, value: string) => {
     const updated = [...remotes]
     updated[index] = { ...updated[index], [field]: value }
+    setRemotes(updated)
+  }
+
+  const addHeader = (remoteIdx: number) => {
+    const updated = [...remotes]
+    updated[remoteIdx] = {
+      ...updated[remoteIdx],
+      headers: [
+        ...(updated[remoteIdx].headers || []),
+        { name: "", value: "", isRequired: true, isSecret: true, description: "" },
+      ],
+    }
+    setRemotes(updated)
+  }
+
+  const removeHeader = (remoteIdx: number, headerIdx: number) => {
+    const updated = [...remotes]
+    updated[remoteIdx] = {
+      ...updated[remoteIdx],
+      headers: updated[remoteIdx].headers.filter((_, i) => i !== headerIdx),
+    }
+    setRemotes(updated)
+  }
+
+  const updateHeader = (
+    remoteIdx: number,
+    headerIdx: number,
+    field: "name" | "value" | "description" | "isRequired" | "isSecret",
+    value: string | boolean,
+  ) => {
+    const updated = [...remotes]
+    const headers = [...(updated[remoteIdx].headers || [])]
+    headers[headerIdx] = { ...headers[headerIdx], [field]: value }
+    updated[remoteIdx] = { ...updated[remoteIdx], headers }
     setRemotes(updated)
   }
 
@@ -354,30 +416,130 @@ export function AddServerDialog({ open, onOpenChange, onServerAdded }: AddServer
             </div>
 
             {remotes.map((remote, index) => (
-              <div key={index} className="flex gap-2 items-start">
-                <Input
-                  placeholder="Type (e.g., sse, stdio)"
-                  value={remote.type}
-                  onChange={(e) => updateRemote(index, "type", e.target.value)}
-                  disabled={loading}
-                  className="w-40"
-                />
-                <Input
-                  placeholder="URL (optional)"
-                  value={remote.url}
-                  onChange={(e) => updateRemote(index, "url", e.target.value)}
-                  disabled={loading}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeRemote(index)}
-                  disabled={loading}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              <div key={index} className="space-y-3 p-3 border rounded-md bg-muted/30">
+                <div className="flex gap-2 items-start">
+                  <Select
+                    value={remote.type}
+                    onValueChange={(v) => updateRemote(index, "type", v)}
+                    disabled={loading}
+                  >
+                    <SelectTrigger className="w-48">
+                      <SelectValue placeholder="Transport" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="streamable-http">streamable-http</SelectItem>
+                      <SelectItem value="sse">sse</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="https://host/mcp"
+                    value={remote.url}
+                    onChange={(e) => updateRemote(index, "url", e.target.value)}
+                    disabled={loading}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeRemote(index)}
+                    disabled={loading}
+                    aria-label="Remove remote"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Headers for this remote */}
+                <div className="space-y-2 pl-2 border-l-2 border-muted">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-muted-foreground">
+                      HTTP Headers{" "}
+                      <span className="font-normal">
+                        — declare each header the server expects. Values can be inlined here,
+                        or supplied at deploy time via the matching{" "}
+                        <code className="text-[11px]">HEADER_&lt;name&gt;</code> environment variable.
+                      </span>
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => addHeader(index)}
+                      disabled={loading}
+                    >
+                      <Plus className="h-3.5 w-3.5 mr-1" />
+                      Add Header
+                    </Button>
+                  </div>
+
+                  {(remote.headers || []).map((header, hIdx) => (
+                    <div key={hIdx} className="space-y-1.5 p-2 rounded border bg-background">
+                      <div className="flex gap-2 items-start">
+                        <Input
+                          placeholder="Authorization"
+                          value={header.name}
+                          onChange={(e) => updateHeader(index, hIdx, "name", e.target.value)}
+                          disabled={loading}
+                          className="w-48 font-mono text-xs"
+                        />
+                        <Input
+                          placeholder="Value (optional — leave blank + required to force HEADER_ env at deploy)"
+                          value={header.value}
+                          onChange={(e) => updateHeader(index, hIdx, "value", e.target.value)}
+                          disabled={loading}
+                          className="flex-1 text-xs"
+                          type={header.isSecret ? "password" : "text"}
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeHeader(index, hIdx)}
+                          disabled={loading}
+                          aria-label="Remove header"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-4 pl-1">
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={header.isRequired}
+                            onChange={(e) => updateHeader(index, hIdx, "isRequired", e.target.checked)}
+                            disabled={loading}
+                            className="h-3.5 w-3.5"
+                          />
+                          Required
+                        </label>
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={header.isSecret}
+                            onChange={(e) => updateHeader(index, hIdx, "isSecret", e.target.checked)}
+                            disabled={loading}
+                            className="h-3.5 w-3.5"
+                          />
+                          Secret
+                        </label>
+                        <Input
+                          placeholder="Description (optional)"
+                          value={header.description}
+                          onChange={(e) => updateHeader(index, hIdx, "description", e.target.value)}
+                          disabled={loading}
+                          className="flex-1 h-7 text-xs"
+                        />
+                      </div>
+                    </div>
+                  ))}
+
+                  {(!remote.headers || remote.headers.length === 0) && (
+                    <p className="text-xs text-muted-foreground/70 italic pl-1">
+                      No headers. If this MCP requires auth, add at least one (e.g. <code className="text-[11px]">Authorization</code>).
+                    </p>
+                  )}
+                </div>
               </div>
             ))}
 

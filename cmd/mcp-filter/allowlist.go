@@ -22,16 +22,35 @@ type AllowEntry struct {
 
 // agentAllowlist is the in-memory shape: a list of allow entries plus an
 // optional "allow all" sentinel (no entries AND allowAll=true).
+//
+// MCPEnabled and A2AEnabled mirror the Paperclip Protocols-tab toggles. They
+// are applied AFTER the entries-based allowlist passes, so:
+//   - mcpEnabled=false → deny every tool, regardless of entries / allowAll
+//   - a2aEnabled=false → deny tools whose name starts with `a2a_`
+// Both are pointers so we can distinguish "explicitly false" from "field
+// missing" when sources don't provide them. Missing → treat as enabled.
 type agentAllowlist struct {
-	AllowAll bool         `json:"allowAll"`
-	Entries  []AllowEntry `json:"entries,omitempty"`
+	AllowAll    bool         `json:"allowAll"`
+	Entries     []AllowEntry `json:"entries,omitempty"`
+	MCPEnabled  *bool        `json:"mcpEnabled,omitempty"`
+	A2AEnabled  *bool        `json:"a2aEnabled,omitempty"`
 }
 
 // allowTool returns true when `toolName` passes the allowlist. Empty entries
 // with AllowAll=false means nothing passes — "deny by default". Empty entries
 // with AllowAll=true (or an unknown agent in a permissive source) means
 // everything passes.
+//
+// On top of that, the MCPEnabled / A2AEnabled gates from the Protocols tab
+// override allow rules: an agent with MCP off sees nothing; an agent with
+// A2A off doesn't see synthetic `a2a_*` tools regardless of any allow rule.
 func (a agentAllowlist) allowTool(toolName string) bool {
+	if a.MCPEnabled != nil && !*a.MCPEnabled {
+		return false
+	}
+	if a.A2AEnabled != nil && !*a.A2AEnabled && strings.HasPrefix(toolName, "a2a_") {
+		return false
+	}
 	if a.AllowAll {
 		return true
 	}
