@@ -90,8 +90,13 @@ func newAllowlistSource(spec string) (AllowlistSource, error) {
 		}
 		return &fileSource{path: path}, nil
 	case "paperclip", "paperclip+http", "paperclip+https":
-		// paperclip://host[:port]    → http://host[:port]
-		// paperclip+https://host/…   → https://host/…
+		// paperclip://host[:port]                  → http://host[:port]
+		// paperclip+https://host/…                 → https://host/…
+		// paperclip://10.2.141.154:80?host=foo.com → connects to the IP/port
+		//   for the TCP hop but sends `Host: foo.com` so a name-based
+		//   reverse proxy (e.g. nginx with multiple server_name blocks)
+		//   matches the right vhost. Useful when the registry-of-truth
+		//   hostname isn't directly DNS-routable from this host.
 		scheme := "http"
 		if u.Scheme == "paperclip+https" {
 			scheme = "https"
@@ -100,14 +105,16 @@ func newAllowlistSource(spec string) (AllowlistSource, error) {
 		if u.Path != "" && u.Path != "/" {
 			base += strings.TrimRight(u.Path, "/")
 		}
+		hostOverride := u.Query().Get("host")
 		token := os.Getenv("PAPERCLIP_INTERNAL_TOKEN")
 		if token == "" {
 			return nil, fmt.Errorf("PAPERCLIP_INTERNAL_TOKEN env var must be set for paperclip:// allowlist source")
 		}
 		return &paperclipSource{
-			baseURL: base,
-			token:   token,
-			client:  &http.Client{Timeout: 3 * time.Second},
+			baseURL:      base,
+			token:        token,
+			hostOverride: hostOverride,
+			client:       &http.Client{Timeout: 3 * time.Second},
 		}, nil
 	case "permissive":
 		return permissiveSource{}, nil
@@ -161,9 +168,10 @@ func (s *fileSource) get(agentID string) (agentAllowlist, error) {
 // `/api/internal/agents/<id>/allowed-tools` endpoint. Auth is a shared
 // secret in the `x-internal-token` header (PAPERCLIP_INTERNAL_TOKEN).
 type paperclipSource struct {
-	baseURL string
-	token   string
-	client  *http.Client
+	baseURL      string
+	token        string
+	hostOverride string
+	client       *http.Client
 }
 
 func (p *paperclipSource) get(agentID string) (agentAllowlist, error) {
@@ -171,6 +179,9 @@ func (p *paperclipSource) get(agentID string) (agentAllowlist, error) {
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
 		return agentAllowlist{}, fmt.Errorf("build request: %w", err)
+	}
+	if p.hostOverride != "" {
+		req.Host = p.hostOverride
 	}
 	req.Header.Set("X-Internal-Token", p.token)
 	req.Header.Set("Accept", "application/json")
