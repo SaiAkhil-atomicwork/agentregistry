@@ -1,0 +1,15 @@
+[Unit]
+Description=Trigger nightly agentgateway restart at 11:00 America/Los_Angeles
+Requires=agentgateway-nightly-restart.service
+
+[Timer]
+# 11:00 Pacific time, every day. Timezone= field is DST-aware: it will fire
+# at 11:00 PST (UTC-8) in winter and 11:00 PDT (UTC-7) in summer
+# automatically. Persistent=true makes the timer fire on next boot if the
+# host was off/restarting at the scheduled instant.
+OnCalendar=*-*-* 11:00:00 America/Los_Angeles
+Persistent=true
+Unit=agentgateway-nightly-restart.service
+
+[Install]
+WantedBy=timers.target

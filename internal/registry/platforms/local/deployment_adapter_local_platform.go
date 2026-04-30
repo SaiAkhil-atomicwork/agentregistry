@@ -338,6 +338,18 @@ func translateLocalAgentGatewayService(platformDir string, port uint16) (*compos
 			Source: platformDir,
 			Target: "/config",
 		}},
+		// Raise the file-descriptor cap. Upstream agentgateway v1.1.0 leaks
+		// file descriptors when stdio MCP child processes exit (logged
+		// repeatedly as `mcp: failed to start stdio server: No file
+		// descriptors available (os error 24)`). Default container limit is
+		// 1024 — we hit it after ~47h of normal traffic. 1,048,576 covers
+		// 1000x our peak observed leak rate; a nightly restart cron handles
+		// any drift past that. Also raised hard nproc to keep a runaway leak
+		// from spawning until the kernel kills us.
+		Ulimits: map[string]*composetypes.UlimitsConfig{
+			"nofile": {Soft: 1048576, Hard: 1048576},
+			"nproc":  {Soft: 32768, Hard: 32768},
+		},
 	}, nil
 }
 

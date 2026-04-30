@@ -1,0 +1,19 @@
+[Unit]
+Description=Nightly restart of the agentgateway container to mitigate FD leak (upstream agentgateway v1.1.0 leaks file descriptors when stdio MCP child processes exit; observed peak 1018 FDs after 47h)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Find the container by service name match so a future docker-compose project
+# rename doesn't break the restart. Falls back to image-ancestor match.
+ExecStart=/bin/bash -lc '\
+  c=$(/usr/bin/docker ps --filter "name=agent_gateway" --format "{{.Names}}" | head -1); \
+  [ -z "$c" ] && c=$(/usr/bin/docker ps --filter "ancestor=arctl-agentgateway" --format "{{.Names}}" | head -1); \
+  if [ -z "$c" ]; then echo "agentgateway container not found" >&2; exit 1; fi; \
+  echo "restarting $c..."; \
+  /usr/bin/docker restart "$c"; \
+  echo "ok"; \
+'
+StandardOutput=journal
+StandardError=journal
